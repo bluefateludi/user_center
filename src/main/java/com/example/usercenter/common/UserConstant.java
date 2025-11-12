@@ -1,0 +1,24 @@
+package com.example.usercenter.common;
+
+public class UserConstant {
+    /**
+     * 用户登录态键
+     */
+    public static final String USER_LOGIN_STATE = "user_login";
+    /**
+     * 默认权限
+     */
+    public static final int DEFAULT_ROLE = 0;
+    /**
+     * 管理员权限
+     */
+    public static final int ADMIN_ROLE = 1;
+    /**
+     * 用户状态 - 正常
+     */
+    public static final int USER_STATUS_NORMAL = 0;
+    /**
+     * 用户状态 - 封禁
+     */
+    public static final int USER_STATUS_BAN = 1;
+}

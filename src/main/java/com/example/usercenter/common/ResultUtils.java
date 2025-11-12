@@ -1,4 +1,4 @@
-package com.example.usercenter.comon;
+package com.example.usercenter.common;
 
 
 /**
@@ -18,6 +18,18 @@ public class ResultUtils {
      */
     public static <T> BaseResponse<T> success(T data) {
         return new BaseResponse<>(0, data, "ok");
+    }
+
+    /**
+     * 成功
+     *
+     * @param data
+     * @param message
+     * @param <T>
+     * @return
+     */
+    public static <T> BaseResponse<T> success(T data, String message) {
+        return new BaseResponse<>(0, data, message);
     }
 
     /**
