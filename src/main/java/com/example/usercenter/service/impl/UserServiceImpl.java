@@ -214,8 +214,7 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User>
      * 用户注销
      */
     @Override
-    public User userLogout(HttpServletRequest request) {
+    public void userLogout(HttpServletRequest request) {
         request.getSession().removeAttribute(USER_LOGIN_STATE);
-        return null;
     }
 }

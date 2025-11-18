@@ -13,15 +13,21 @@ import com.example.usercenter.service.UserService;
 import lombok.extern.slf4j.Slf4j;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
+import io.swagger.v3.oas.annotations.enums.ParameterIn;
 import io.swagger.v3.oas.annotations.media.Content;
 import io.swagger.v3.oas.annotations.media.Schema;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import org.apache.commons.lang3.StringUtils;
+import org.springframework.web.bind.annotation.DeleteMapping;
+import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RestController;
 
 import javax.annotation.Resource;
@@ -73,11 +79,6 @@ public class UserController {
         String userPassword = userRegisterRequest.getUserPassword();
         String checkPassword = userRegisterRequest.getCheckPassword();
 
-        // 校验密码和校验密码相同
-        if (!userPassword.equals(checkPassword)) {
-            throw new BusinessException(ErrorCode.PARAMS_ERROR, "两次输入的密码不一致");
-        }
-
         User result = userService.userRegister(userRegisterRequest);
         return ResultUtils.success(result.getId(), "注册成功");
     }
@@ -98,30 +99,34 @@ public class UserController {
     @PostMapping("/login")
     public BaseResponse<Long> userLogin(
             @Parameter(description = "用户登录信息", required = true)
-            @Valid @RequestBody UserLoginRequest userLoginRequest) {
+            @Valid @RequestBody UserLoginRequest userLoginRequest, HttpServletRequest request) {
         if (userLoginRequest == null) {
             throw new BusinessException(ErrorCode.PARAMS_ERROR, "请求参数为空");
         }
 
         User result = userService.userLogin(userLoginRequest);
+        // 将用户登录信息存储到Session中
+        request.getSession().setAttribute(USER_LOGIN_STATE, result);
         return ResultUtils.success(result.getId(), "登录成功");
     }
 
     /**
      * 用户注销
      */
-    @Operation(summary = "用户注销", description = "用户退出登录接口")
+    @Operation(summary = "用户注销", description = "用户退出登录接口",
+            security = {@SecurityRequirement(name = "session-auth")})
     @ApiResponse(responseCode = "200", description = "注销成功")
     @PostMapping("/logout")
-    public BaseResponse<Long> userLogout() {
-        User result = userService.userLogout(null);
-        return ResultUtils.success(result.getId(), "注销成功");
+    public BaseResponse<Long> userLogout(HttpServletRequest request) {
+        userService.userLogout(request);
+        return ResultUtils.success(0L, "注销成功");
     }
 
     /**
      * 获取当前用户
      */
-    @Operation(summary = "获取当前用户", description = "获取当前登录用户的信息")
+    @Operation(summary = "获取当前用户", description = "获取当前登录用户的信息",
+            security = {@SecurityRequirement(name = "session-auth")})
     @ApiResponse(responseCode = "200", description = "获取成功",
             content = @Content(schema = @Schema(implementation = BaseResponse.class)))
     @PostMapping("/current")
@@ -141,31 +146,32 @@ public class UserController {
     }
 
     /**
-     * 查找用户
+     * 根据ID查找用户
      */
-    @Operation(summary = "查找用户", description = "根据用户名搜索用户列表（仅管理员）")
+    @Operation(summary = "根据ID查找用户", description = "根据用户ID查找用户信息（仅管理员）",
+            security = {@SecurityRequirement(name = "session-auth")})
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "查找成功",
                     content = @Content(schema = @Schema(implementation = BaseResponse.class))),
-            @ApiResponse(responseCode = "401", description = "无权限访问")
+            @ApiResponse(responseCode = "401", description = "无权限访问"),
+            @ApiResponse(responseCode = "400", description = "参数错误或用户不存在")
     })
-    @PostMapping("/search")
-    public BaseResponse<List<User>> searchUser(
-            @Parameter(description = "HTTP请求对象，用于权限验证") HttpServletRequest request,
-            @Parameter(description = "用户名关键词") String username) {
+    @GetMapping("/search")
+    public BaseResponse<User> searchUser(
+            @Parameter(description = "用户ID", required = true) @RequestParam Long userId,
+            @Parameter(description = "HTTP请求对象，用于权限验证") HttpServletRequest request) {
         if (!isAdmin(request)) {
             throw new BusinessException(ErrorCode.NO_AUTH, "缺少管理员权限");
         }
-        // 创建查询条件
-        QueryWrapper<User> queryWrapper = new QueryWrapper<>();
-        if (StringUtils.isNotBlank(username)) {
-            queryWrapper.like("username", username);
+        if (userId == null || userId <= 0) {
+            throw new BusinessException(ErrorCode.PARAMS_ERROR, "用户ID参数错误");
         }
-        List<User> userList = userService.list(queryWrapper);
-        List<User> list = userList.stream()
-                .map(user -> userService.getSafetyUser(user))
-                .collect(Collectors.toList());
-        return ResultUtils.success(list, "查找用户成功");
+        User user = userService.getById(userId);
+        if (user == null) {
+            throw new BusinessException(ErrorCode.PARAMS_ERROR, "用户不存在");
+        }
+        User safetyUser = userService.getSafetyUser(user);
+        return ResultUtils.success(safetyUser, "查找用户成功");
     }
 
     /**
@@ -181,7 +187,8 @@ public class UserController {
     /**
      * 更新用户
      */
-    @Operation(summary = "更新用户", description = "更新用户信息，管理员可更新任意用户")
+    @Operation(summary = "更新用户", description = "更新用户信息，管理员可更新任意用户",
+            security = {@SecurityRequirement(name = "session-auth")})
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "更新成功"),
             @ApiResponse(responseCode = "400", description = "参数错误"),
@@ -226,26 +233,32 @@ public class UserController {
      * 删除用户
      * 只有管理员才能删除用户
      */
-    @Operation(summary = "删除用户", description = "根据用户ID删除用户（仅管理员）")
+    @Operation(summary = "删除用户", description = "根据用户ID删除用户（仅管理员）",
+            security = {@SecurityRequirement(name = "session-auth")})
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "删除成功"),
-            @ApiResponse(responseCode = "400", description = "参数错误"),
+            @ApiResponse(responseCode = "400", description = "参数错误或用户不存在"),
             @ApiResponse(responseCode = "401", description = "无权限访问")
     })
-    @PostMapping("/delete")
+    @DeleteMapping("/{userId}")
     public BaseResponse<Boolean> deleteUser(
-            @Parameter(description = "要删除的用户ID") @RequestBody long id,
+            @Parameter(description = "要删除的用户ID", required = true) @PathVariable Long userId,
             @Parameter(description = "HTTP请求对象，用于权限验证") HttpServletRequest request) {
         //判断是否是管理员
         if(!isAdmin(request)){
-            throw new BusinessException(ErrorCode.NO_AUTH);
+            throw new BusinessException(ErrorCode.NO_AUTH, "缺少管理员权限");
         }
         //id出现错误
-        if(id <=0){
-            throw  new BusinessException(ErrorCode.PARAMS_ERROR);
+        if(userId == null || userId <= 0){
+            throw new BusinessException(ErrorCode.PARAMS_ERROR, "用户ID参数错误");
         }
-        boolean b =userService.removeById(id);
-        return ResultUtils.success(b, "删除用户成功");
+        // 检查用户是否存在
+        User user = userService.getById(userId);
+        if (user == null) {
+            throw new BusinessException(ErrorCode.PARAMS_ERROR, "用户不存在");
+        }
+        boolean result = userService.removeById(userId);
+        return ResultUtils.success(result, "删除用户成功");
     }
 
 }
